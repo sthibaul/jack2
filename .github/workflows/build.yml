@@ -8,8 +8,8 @@ on:
     branches:
       - '*'
 env:
-  CACHE_VERSION: 20230704
-  PAWPAW_VERSION: 6a3c6a65a89abe221858c3f7635140074506bfc3
+  CACHE_VERSION: 20240930
+  PAWPAW_VERSION: a9ab736dc297b2055536c71cddf1c79711d420bb
   PAWPAW_SKIP_LTO: 1
   PAWPAW_SKIP_GLIB: 1
   PAWPAW_SKIP_LV2: 1
@@ -19,13 +19,13 @@ jobs:
     strategy:
       matrix:
         target: [intel, universal]
-    runs-on: macos-11
+    runs-on: macos-12
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Set up cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/PawPawBuilds
@@ -40,7 +40,9 @@ jobs:
           git clone https://github.com/DISTRHO/PawPaw.git
           git -C PawPaw checkout ${PAWPAW_VERSION}
         fi
-        ./PawPaw/bootstrap-jack2.sh macos-${{ matrix.target }} && ./PawPaw/.cleanup.sh macos-${{ matrix.target }}
+        ./PawPaw/.github/workflows/bootstrap-deps.sh macos-${{ matrix.target }}
+        ./PawPaw/bootstrap-jack2.sh macos-${{ matrix.target }}
+        ./PawPaw/.cleanup.sh macos-${{ matrix.target }}
     - name: Build jack2
       shell: bash
       run: |
@@ -58,7 +60,7 @@ jobs:
       shell: bash
       run: |
         ./macosx/generate-pkg.sh $(pwd)/destdir/usr/local ${{ github.event.pull_request.number || env.SHA8 }}
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: jack2-macOS-${{ matrix.target }}-${{ github.event.pull_request.number || env.SHA8 }}
         path: macosx/jack2-osx-*.pkg
@@ -69,48 +71,47 @@ jobs:
         target: [win32, win64]
     runs-on: ubuntu-22.04
     steps:
-    - uses: actions/checkout@v3
+    - uses: actions/checkout@v4
       with:
         submodules: recursive
     - name: Set up cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/PawPawBuilds
         key: ${{ matrix.target }}-v${{ env.CACHE_VERSION }}
     - name: Restore debian packages cache
+      shell: bash
       run: |
-        if [ -d ~/PawPawBuilds/debs ] && [ "$(ls ~/PawPawBuilds/debs | wc -l)" -ne 0 ]; then \
-          sudo cp ~/PawPawBuilds/debs/*.deb /var/cache/apt/archives/; \
+        if [ -d ~/PawPawBuilds/debs ] && [ "$(ls ~/PawPawBuilds/debs | wc -l)" -ne 0 ]; then
+          sudo cp ~/PawPawBuilds/debs/*.deb /var/cache/apt/archives/;
         fi
     - name: Fix GitHub's mess
+      shell: bash
       run: |
         sudo rm -f /etc/apt/sources.list.d/microsoft-prod.list
         sudo dpkg --add-architecture i386
         sudo apt-get update -qq
         sudo apt-get install -yqq --allow-downgrades libc6:i386 libgcc-s1:i386 libstdc++6:i386
     - name: Set up dependencies
-      if: ${{ matrix.target == 'win32' }}
-      run: |
-        sudo apt-get install -y autopoint build-essential curl cmake jq llvm mingw-w64 xvfb \
-          binutils-mingw-w64-i686 g++-mingw-w64-i686 mingw-w64 wine-stable:i386
-    - name: Set up dependencies
-      if: ${{ matrix.target == 'win64' }}
-      run: |
-        sudo apt-get install -y autopoint build-essential curl cmake jq llvm mingw-w64 xvfb \
-          binutils-mingw-w64-x86-64 g++-mingw-w64-x86-64 mingw-w64 wine-stable
-    - name: Cache debian packages
-      run: |
-        mkdir -p ~/PawPawBuilds/debs && \
-        sudo mv /var/cache/apt/archives/*.deb ~/PawPawBuilds/debs/
-    - name: Bootstrap dependencies
       shell: bash
       run: |
         if [ ! -d PawPaw ]; then
           git clone https://github.com/DISTRHO/PawPaw.git
           git -C PawPaw checkout ${PAWPAW_VERSION}
         fi
-        ./PawPaw/bootstrap-jack2.sh ${{ matrix.target }} && ./PawPaw/.cleanup.sh ${{ matrix.target }}
+        sudo ./PawPaw/.github/workflows/bootstrap-deps.sh ${{ matrix.target }}
+        sudo apt-get install -y build-essential llvm xvfb wine-stable
+    - name: Cache debian packages
+      shell: bash
+      run: |
+        mkdir -p ~/PawPawBuilds/debs
+        sudo mv /var/cache/apt/archives/*.deb ~/PawPawBuilds/debs/
+    - name: Bootstrap dependencies
+      shell: bash
+      run: |
+        ./PawPaw/bootstrap-jack2.sh ${{ matrix.target }}
+        ./PawPaw/.cleanup.sh ${{ matrix.target }}
     - name: Build jack2
       shell: bash
       run: |
@@ -122,6 +123,7 @@ jobs:
         ./waf install
     - name: Generate MSVC lib files
       if: ${{ matrix.target == 'win32' }}
+      shell: bash
       run: |
         pushd $(pwd)/destdir/lib
         llvm-dlltool -m i386 -D libjack.dll -d libjack.def -l libjack.lib
@@ -130,6 +132,7 @@ jobs:
         popd
     - name: Generate MSVC lib files
       if: ${{ matrix.target == 'win64' }}
+      shell: bash
       run: |
         # 32bit
         pushd $(pwd)/destdir/lib32
@@ -163,7 +166,7 @@ jobs:
         echo "#define VERSION \"${{ github.event.pull_request.number || env.SHA8 }}\"" > version.iss
         xvfb-run wine ${WINEPREFIX}/drive_c/InnoSeup/ISCC.exe ${{ matrix.target }}-mini.iss
         popd
-    - uses: actions/upload-artifact@v3
+    - uses: actions/upload-artifact@v4
       with:
         name: jack2-${{ matrix.target }}-${{ github.event.pull_request.number || env.SHA8 }}
         path: windows/inno/jack2-*.exe
